@@ -1,12 +1,68 @@
 {
   "name": "reze-design-desktop",
-  "version": "0.3.0.1",
+  "version": "0.3.0-1",
   "private": false,
-  "description": "Reze Design 桌面客户端:离线本地渲染导出 + 在线访问作者站点(双模式)",
+  "description": "Reze Design 桌面客户端",
   "main": "electron/main.mjs",
+  "author": {
+    "name": "Reze Design"
+  },
   "scripts": {
     "dev": "node scripts/dev.mjs",
-    "dist": "node scripts/dist.mjs"
+    "dist": "node scripts/dist.mjs",
+    "make-icon": "node scripts/make-icon.mjs"
   },
-  "license": "AGPL-3.0-or-later"
+  "build": {
+    "appId": "dev.reze.rezedesign.desktop",
+    "productName": "Reze Design",
+    "afterPack": "scripts/after-pack.cjs",
+    "files": [
+      "electron/**",
+      "package.json",
+      "config.json"
+    ],
+    "extraResources": [
+      {
+        "from": "dist-resources/reze-design",
+        "to": "reze-design"
+      },
+      {
+        "from": "resources",
+        "to": "."
+      }
+    ],
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.graphics-design",
+      "icon": "build/icon.icns",
+      "artifactName": "RezeDesign-${version}.${ext}"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "build/icon.ico",
+      "artifactName": "RezeDesign-${version}-Setup.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "Reze Design"
+    },
+    "directories": {
+      "output": "dist"
+    }
+  },
+  "license": "AGPL-3.0-or-later",
+  "devDependencies": {
+    "electron": "^43.2.0",
+    "electron-builder": "^26.15.3",
+    "jimp": "^1.6.1",
+    "png-to-ico": "^3.0.2",
+    "png2icons": "^2.0.1"
+  }
 }
