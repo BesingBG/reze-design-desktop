@@ -4,6 +4,9 @@
 
 Reze Design Desktop 是一款跨平台的开源 [MMD（MikuMikuDance）](https://sites.google.com/view/vpvp/) 视频渲染软件，支持编辑，播放和渲染 VMD/PMX 格式的模型动画，它是基于 [reze-design](https://github.com/AmyangXYZ/reze-design) 封装的桌面软件，使用 WebGPU 的实时渲染，可以更方便的在本地渲染MMD视频，支持window和MAC。
 
+## 截图
+
+![Reze Design Desktop](screenshot.webp)
 
 ## 功能
 
