@@ -1,0 +1,12 @@
+{
+  "name": "reze-design-desktop",
+  "version": "0.3.0.1",
+  "private": false,
+  "description": "Reze Design 桌面客户端:离线本地渲染导出 + 在线访问作者站点(双模式)",
+  "main": "electron/main.mjs",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dist": "node scripts/dist.mjs"
+  },
+  "license": "AGPL-3.0-or-later"
+}
