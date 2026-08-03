@@ -30,32 +30,46 @@ function copyEntries(srcDir, destDir, exclude = []) {
   }
 }
 
-// 发行剥离:内置默认场景指向的版权资源(models/animations/audios)不在发行包内。
-// 必须用剥离版 default-scene.ts 构建,否则 JS bundle 仍固化原版引用,打开即因 404 报错。
-const releaseScene = join(root, "resources", "release", "default-scene.ts")
+// 发行剥离:内置版权资源(public/models、public/animations、public/audios)不出现在发行包内。
+// 空场景由上游 reze-design 原生支持:构建期置 NEXT_PUBLIC_USE_DEFAULT_ASSETS=false
+// (见 lib/default-scene.ts 的 USE_DEFAULT_ASSETS 判定,page.tsx 亦已容错空 cast),因此无需手工改源码。
 const strippedDirs = ["public/models", "public/animations", "public/audios"]
 
-// 空场景兼容:page.tsx 用 models[0].model.id 初始化激活模型,SSR 时对空场景崩溃。
-function patchEmptySceneCompat() {
-  const pagePath = join(stagingServer, "app", "page.tsx")
-  const src = readFileSync(pagePath, "utf8")
-  const from = "useState(bootScene.assets.models[0].model.id)"
-  const to = 'useState(bootScene.assets.models[0]?.model.id ?? "")'
-  if (!src.includes(from)) {
-    throw new Error(`page.tsx 未命中空场景补丁锚点,需同步更新: ${from}`)
-  }
-  writeFileSync(pagePath, src.split(from).join(to))
-  console.log("[dist] 注入空场景兼容补丁(page.tsx)...")
-}
-
 function applyReleaseStrip() {
-  if (!existsSync(releaseScene)) throw new Error(`缺少剥离版默认场景:${releaseScene}`)
-  console.log("[dist] 注入剥离版默认场景,移除内置版权资源...")
-  cpSync(releaseScene, join(stagingServer, "lib", "default-scene.ts"))
+  console.log("[dist] 移除内置版权资源(public/models、public/animations、public/audios)...")
   for (const dir of strippedDirs) {
     rmSync(join(stagingServer, dir), { recursive: true, force: true })
   }
-  patchEmptySceneCompat()
+}
+
+// 运行期加载 next.config.ts 需要 typescript;打包后 --omit=dev 已将其移除,next 会
+// 触发自动 `npm install typescript`,在只读安装目录下必然失败并退出。转换为纯 JS
+// 配置 next.config.js 后不再需要 TypeScript,彻底消除该运行时依赖。
+function convertNextConfigTsToJs() {
+  const tsPath = join(stagingServer, "next.config.ts")
+  if (!existsSync(tsPath)) {
+    console.log("[dist] 无 next.config.ts,跳过配置转换")
+    return
+  }
+  let src = readFileSync(tsPath, "utf8")
+  const hasCrlf = src.includes("\r\n")
+  if (hasCrlf) src = src.replace(/\r\n/g, "\n")
+  const cfgText = src
+    .split("\n")
+    .filter((line) => !/^\s*import\s+type\s/.test(line))
+    .join("\n")
+  if (!/const\s+(nextConfig|config)\s*:\s*NextConfig\s*=\s*\{/.test(cfgText)) {
+    throw new Error("next.config.ts 转换失败:未找到 const nextConfig/config: NextConfig = {,需同步更新")
+  }
+  const js = cfgText
+    .split("\n")
+    .filter((line) => !/^\s*export\s+default\s+/.test(line))
+    .join("\n")
+    .replace(/const\s+(nextConfig|config)\s*:\s*NextConfig\s*=\s*\{/, "module.exports = {")
+  const jsPath = join(stagingServer, "next.config.js")
+  writeFileSync(jsPath, hasCrlf ? js.replace(/\n/g, "\r\n") : js)
+  rmSync(tsPath, { force: true })
+  console.log("[dist] next.config.ts → next.config.js(消除运行时 TypeScript 依赖)")
 }
 
 async function main() {
@@ -72,20 +86,27 @@ async function main() {
       throw new Error("缺少 .next 构建产物,请先执行 npm run build")
     }
     console.warn(
-      "[dist] 警告:--skip-build 直接复用既有 .next。若其由原版 default-scene 构建,发行包会缺少默认场景资源而无法打开,请改用完整构建。",
+      "[dist] 警告:--skip-build 直接复用既有 .next。若其不是以 NEXT_PUBLIC_USE_DEFAULT_ASSETS=false 构建,发行包仍会加载内置默认资产,请改用完整构建。",
     )
     copy(join(sub, ".next"), join(stagingServer, ".next"))
   } else {
     console.log("[dist] 安装依赖(全量,含构建工具)...")
     await run("npm", ["ci"], { cwd: stagingServer })
-    console.log("[dist] next build(使用剥离版默认场景)...")
-    await run("npm", ["run", "build"], { cwd: stagingServer })
+    convertNextConfigTsToJs()
+    console.log("[dist] next build(空场景版: NEXT_PUBLIC_USE_DEFAULT_ASSETS=false)...")
+    await run("npm", ["run", "build"], {
+      cwd: stagingServer,
+      env: { ...process.env, NEXT_PUBLIC_USE_DEFAULT_ASSETS: "false" },
+    })
   }
 
   console.log("[dist] 安装生产依赖(仅 dependencies)...")
   await run("npm", ["ci", "--omit=dev", "--no-audit", "--no-fund"], { cwd: stagingServer })
 
   console.log("[dist] electron-builder 打包...")
+  // 本机网络存在 TLS 中间人拦截,electron-builder 的 got 下载会因证书校验失败
+  // (unable to verify the first certificate)。此处按需关闭证书校验。
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0"
   const builderCli = require.resolve("electron-builder/out/cli/cli.js")
   const target = {
     win32: ["--win", "nsis"],
