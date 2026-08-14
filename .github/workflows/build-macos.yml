@@ -1,0 +1,89 @@
+name: Build macOS Installer
+
+on:
+  workflow_dispatch:
+    inputs:
+      upstream_ref:
+        description: "上游子模块版本:latest-commit(默认分支最新提交)/ latest(最新 tag)/ 具体 tag 或 commit SHA / 留空(仓库已适配版本)"
+        type: string
+        default: ""
+      version_override:
+        description: "强制指定产物版本号(如 0.4.0);留空 = 自动读取子模块 package.json 的 version"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  build-macos:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Resolve submodule ref (latest / custom)
+        shell: bash
+        run: |
+          REF="${{ inputs.upstream_ref }}"
+          if [ -n "$REF" ]; then
+            git -C reze-design fetch --tags --force origin
+            if [ "$REF" = "latest" ]; then
+              LATEST_TAG=$(git -C reze-design ls-remote --tags origin | grep -oE 'refs/tags/v?[0-9][0-9.]*$' | sed 's#refs/tags/##' | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)
+              if [ -n "$LATEST_TAG" ]; then
+                echo "Detected latest tag: $LATEST_TAG"
+                git -C reze-design checkout "$LATEST_TAG"
+              else
+                git -C reze-design fetch --force origin HEAD
+                HEAD_SHA=$(git -C reze-design rev-parse --short FETCH_HEAD)
+                echo "No tags found, using default branch HEAD: $HEAD_SHA"
+                git -C reze-design checkout --detach FETCH_HEAD
+              fi
+            elif [ "$REF" = "latest-commit" ]; then
+              git -C reze-design fetch --force origin HEAD
+              HEAD_SHA=$(git -C reze-design rev-parse --short FETCH_HEAD)
+              echo "Using default branch HEAD: $HEAD_SHA"
+              git -C reze-design checkout --detach FETCH_HEAD
+            else
+              git -C reze-design checkout "$REF"
+            fi
+            echo "Submodule now at: $(git -C reze-design rev-parse --short HEAD)"
+          fi
+
+      - name: Sync version
+        shell: bash
+        run: |
+          if [ -n "${{ inputs.version_override }}" ]; then
+            VERSION="${{ inputs.version_override }}"
+          else
+            VERSION=$(node -p "require('./reze-design/package.json').version")
+          fi
+          VERSION="${VERSION#v}"
+          node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version=process.argv[1];fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n')" "$VERSION"
+          echo "Build version = $VERSION"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Build DMG (Apple Silicon)
+        shell: bash
+        env:
+          ELECTRON_MIRROR: https://github.com/electron/electron/releases/download/
+          ELECTRON_BUILDER_BINARIES_MIRROR: https://github.com/electron-userland/electron-builder-binaries/releases/download/
+        run: |
+          npm ci
+          node scripts/dist.mjs
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-macos-${{ env.VERSION }}
+          path: dist/*.dmg
+          if-no-files-found: error
