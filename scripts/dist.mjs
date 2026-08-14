@@ -45,6 +45,40 @@ function applyReleaseStrip() {
 // 运行期加载 next.config.ts 需要 typescript;打包后 --omit=dev 已将其移除,next 会
 // 触发自动 `npm install typescript`,在只读安装目录下必然失败并退出。转换为纯 JS
 // 配置 next.config.js 后不再需要 TypeScript,彻底消除该运行时依赖。
+// 注意:值导入(含 import ... from "./package.json")必须归一为 CommonJS require(),否则
+// Node 22 模块语法检测会将该 .js 当作 ESM 执行(Next 对 config 不做转译),裸导入 JSON 因
+// 缺少 `with { type: "json" }` 抛 ERR_IMPORT_ATTRIBUTE_MISSING 导致 next build 失败。
+function esmImportToCommonJs(line) {
+  const namePattern = (named) =>
+    named
+      .split(",")
+      .map((p) => p.trim())
+      .filter((p) => p.length > 0 && !/^type\s+\w+/.test(p))
+      .map((p) => p.replace(/\s+as\s+/g, ": "))
+      .join(", ")
+  const makeRequire = (quote, spec) => `require(${quote}${spec}${quote})`
+  const cleaned = line.trim().replace(/\s+with\s+\{[^}]*\}\s*$/, "").replace(/;?\s*$/, "")
+  if (!/^import\b/.test(cleaned)) return line
+  let m = cleaned.match(/^import\s+(["'])([^"']+)\1$/)
+  if (m) return makeRequire(m[1], m[2])
+  const clause = cleaned.replace(/^import\s+/, "")
+  m = clause.match(/^(.+?)\s+from\s+(["'])([^"']+)\2$/)
+  if (!m) {
+    throw new Error("next.config.ts 转换失败:不支持的 import 语句(需同步更新转换逻辑):\n" + line)
+  }
+  const requireCall = makeRequire(m[2], m[3])
+  const names = m[1].trim()
+  m = names.match(/^\*\s+as\s+(\w+)$/)
+  if (m) return `const ${m[1]} = ${requireCall}`
+  m = names.match(/^(\w+)\s*,\s*\{([^}]*)\}$/)
+  if (m) return `const ${m[1]} = ${requireCall}\nconst { ${namePattern(m[2])} } = ${requireCall}`
+  m = names.match(/^\{([^}]*)\}$/)
+  if (m) return `const { ${namePattern(m[1])} } = ${requireCall}`
+  m = names.match(/^(\w+)$/)
+  if (m) return `const ${m[1]} = ${requireCall}`
+  throw new Error("next.config.ts 转换失败:不支持的 import 语句(需同步更新转换逻辑):\n" + line)
+}
+
 function convertNextConfigTsToJs() {
   const tsPath = join(stagingServer, "next.config.ts")
   if (!existsSync(tsPath)) {
@@ -64,12 +98,13 @@ function convertNextConfigTsToJs() {
   const js = cfgText
     .split("\n")
     .filter((line) => !/^\s*export\s+default\s+/.test(line))
+    .map((line) => (/^\s*import\b/.test(line) ? esmImportToCommonJs(line) : line))
     .join("\n")
     .replace(/const\s+(nextConfig|config)\s*:\s*NextConfig\s*=\s*\{/, "module.exports = {")
   const jsPath = join(stagingServer, "next.config.js")
   writeFileSync(jsPath, hasCrlf ? js.replace(/\n/g, "\r\n") : js)
   rmSync(tsPath, { force: true })
-  console.log("[dist] next.config.ts → next.config.js(消除运行时 TypeScript 依赖)")
+  console.log("[dist] next.config.ts → next.config.js(消除运行时 TypeScript 依赖;值导入归一为 require)")
 }
 
 async function main() {
