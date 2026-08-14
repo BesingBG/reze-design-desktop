@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       upstream_ref:
-        description: "上游子模块版本:填 tag(如 v0.4.0)、commit SHA,或 latest(自动取上游最新 tag,无 tag 时取默认分支最新 commit);留空 = 使用仓库已适配版本"
+        description: "上游子模块版本:latest-commit(默认分支最新提交)/ latest(最新 tag)/ 具体 tag 或 commit SHA / 留空(仓库已适配版本)"
         type: string
         default: ""
       version_override:
@@ -43,10 +43,16 @@ jobs:
                 echo "Detected latest tag: $LATEST_TAG"
                 git -C reze-design checkout "$LATEST_TAG"
               else
-                HEAD_SHA=$(git -C reze-design ls-remote origin HEAD | cut -f1)
+                git -C reze-design fetch --force origin HEAD
+                HEAD_SHA=$(git -C reze-design rev-parse --short FETCH_HEAD)
                 echo "No tags found, using default branch HEAD: $HEAD_SHA"
-                git -C reze-design checkout --detach "$HEAD_SHA"
+                git -C reze-design checkout --detach FETCH_HEAD
               fi
+            elif [ "$REF" = "latest-commit" ]; then
+              git -C reze-design fetch --force origin HEAD
+              HEAD_SHA=$(git -C reze-design rev-parse --short FETCH_HEAD)
+              echo "Using default branch HEAD: $HEAD_SHA"
+              git -C reze-design checkout --detach FETCH_HEAD
             else
               git -C reze-design checkout "$REF"
             fi
