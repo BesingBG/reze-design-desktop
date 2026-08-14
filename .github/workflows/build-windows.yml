@@ -70,6 +70,7 @@ jobs:
           VERSION="${VERSION#v}"
           node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version=process.argv[1];fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n')" "$VERSION"
           echo "Build version = $VERSION"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
 
       - name: Build NSIS installer
         shell: bash
@@ -83,6 +84,6 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: installer-windows
+          name: installer-windows-${{ env.VERSION }}
           path: dist/*.exe
           if-no-files-found: error
