@@ -1,0 +1,51 @@
+name: Build Windows Installer
+
+on:
+  workflow_dispatch:
+    inputs:
+      upstream_ref:
+        description: "上游子模块 tag(留空 = 使用仓库已适配版本)"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Pin submodule to upstream tag
+        if: inputs.upstream_ref != ''
+        shell: bash
+        run: |
+          git -C reze-design fetch --tags --force origin
+          git -C reze-design checkout "${{ inputs.upstream_ref }}"
+
+      - name: Build NSIS installer
+        shell: bash
+        env:
+          ELECTRON_MIRROR: https://github.com/electron/electron/releases/download/
+          ELECTRON_BUILDER_BINARIES_MIRROR: https://github.com/electron-userland/electron-builder-binaries/releases/download/
+        run: |
+          npm ci
+          node scripts/dist.mjs
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-windows
+          path: dist/*.exe
+          if-no-files-found: error
