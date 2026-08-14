@@ -4,7 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       upstream_ref:
-        description: "上游子模块 tag(留空 = 使用仓库已适配版本)"
+        description: "上游子模块版本:填 tag(如 v0.4.0)、commit SHA,或 latest(自动取上游最新 tag,无 tag 时取默认分支最新 commit);留空 = 使用仓库已适配版本"
+        type: string
+        default: ""
+      version_override:
+        description: "强制指定产物版本号(如 0.4.0);留空 = 自动读取子模块 package.json 的 version"
         type: string
         default: ""
 
@@ -27,12 +31,39 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Pin submodule to upstream tag
-        if: inputs.upstream_ref != ''
+      - name: Resolve submodule ref (latest / custom)
         shell: bash
         run: |
-          git -C reze-design fetch --tags --force origin
-          git -C reze-design checkout "${{ inputs.upstream_ref }}"
+          REF="${{ inputs.upstream_ref }}"
+          if [ -n "$REF" ]; then
+            git -C reze-design fetch --tags --force origin
+            if [ "$REF" = "latest" ]; then
+              LATEST_TAG=$(git -C reze-design ls-remote --tags origin | grep -oE 'refs/tags/v?[0-9][0-9.]*$' | sed 's#refs/tags/##' | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)
+              if [ -n "$LATEST_TAG" ]; then
+                echo "Detected latest tag: $LATEST_TAG"
+                git -C reze-design checkout "$LATEST_TAG"
+              else
+                HEAD_SHA=$(git -C reze-design ls-remote origin HEAD | cut -f1)
+                echo "No tags found, using default branch HEAD: $HEAD_SHA"
+                git -C reze-design checkout --detach "$HEAD_SHA"
+              fi
+            else
+              git -C reze-design checkout "$REF"
+            fi
+            echo "Submodule now at: $(git -C reze-design rev-parse --short HEAD)"
+          fi
+
+      - name: Sync version
+        shell: bash
+        run: |
+          if [ -n "${{ inputs.version_override }}" ]; then
+            VERSION="${{ inputs.version_override }}"
+          else
+            VERSION=$(node -p "require('./reze-design/package.json').version")
+          fi
+          VERSION="${VERSION#v}"
+          node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version=process.argv[1];fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n')" "$VERSION"
+          echo "Build version = $VERSION"
 
       - name: Build NSIS installer
         shell: bash
