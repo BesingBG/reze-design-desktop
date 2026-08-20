@@ -1,6 +1,6 @@
 {
   "name": "reze-design-desktop",
-  "version": "0.4.2",
+  "version": "0.5.1",
   "private": false,
   "description": "Reze Design 桌面客户端",
   "main": "electron/main.mjs",
