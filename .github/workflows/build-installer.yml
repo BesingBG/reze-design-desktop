@@ -1,0 +1,201 @@
+name: Build Installer (Windows & macOS)
+
+on:
+  workflow_dispatch:
+    inputs:
+      upstream_ref:
+        description: "上游子模块版本:latest-commit(默认分支最新提交)/ latest(最新 tag)/ 具体 tag 或 commit SHA / 留空(仓库已适配版本)"
+        type: string
+        default: ""
+      version_override:
+        description: "强制指定产物版本号(如 0.4.0);留空 = 自动读取子模块 package.json 的 version"
+        type: string
+        default: ""
+      upload_release:
+        description: "构建完成后是否以 Pre-release 上传到 GitHub Releases(默认不上传)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - platform: windows
+            runs-on: windows-latest
+            artifact: installer-windows
+            glob: dist/*.exe
+          - platform: macos
+            runs-on: macos-15
+            artifact: installer-macos
+            glob: dist/*.dmg
+    runs-on: ${{ matrix.runs-on }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Resolve submodule ref (latest / custom)
+        shell: bash
+        run: |
+          REF="${{ inputs.upstream_ref }}"
+          if [ -n "$REF" ]; then
+            git -C reze-design fetch --tags --force origin
+            if [ "$REF" = "latest" ]; then
+              LATEST_TAG=$(git -C reze-design ls-remote --tags origin | grep -oE 'refs/tags/v?[0-9][0-9.]*$' | sed 's#refs/tags/##' | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)
+              if [ -n "$LATEST_TAG" ]; then
+                echo "Detected latest tag: $LATEST_TAG"
+                git -C reze-design checkout "$LATEST_TAG"
+              else
+                git -C reze-design fetch --force origin HEAD
+                HEAD_SHA=$(git -C reze-design rev-parse --short FETCH_HEAD)
+                echo "No tags found, using default branch HEAD: $HEAD_SHA"
+                git -C reze-design checkout --detach FETCH_HEAD
+              fi
+            elif [ "$REF" = "latest-commit" ]; then
+              git -C reze-design fetch --force origin HEAD
+              HEAD_SHA=$(git -C reze-design rev-parse --short FETCH_HEAD)
+              echo "Using default branch HEAD: $HEAD_SHA"
+              git -C reze-design checkout --detach FETCH_HEAD
+            else
+              git -C reze-design checkout "$REF"
+            fi
+            echo "Submodule now at: $(git -C reze-design rev-parse --short HEAD)"
+          fi
+
+      - name: Capture upstream commit SHA
+        shell: bash
+        run: |
+          SHA=$(git -C reze-design rev-parse --short HEAD)
+          echo "Upstream SHA = $SHA"
+          echo "SHA=$SHA" >> "$GITHUB_ENV"
+
+      - name: Sync version
+        shell: bash
+        run: |
+          if [ -n "${{ inputs.version_override }}" ]; then
+            VERSION="${{ inputs.version_override }}"
+          else
+            VERSION=$(node -p "require('./reze-design/package.json').version")
+          fi
+          VERSION="${VERSION#v}"
+          node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version=process.argv[1];fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n')" "$VERSION"
+          echo "Build version = $VERSION"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Build (${{ matrix.platform }})
+        shell: bash
+        env:
+          ELECTRON_MIRROR: https://github.com/electron/electron/releases/download/
+          ELECTRON_BUILDER_BINARIES_MIRROR: https://github.com/electron-userland/electron-builder-binaries/releases/download/
+        run: |
+          npm ci
+          node scripts/dist.mjs
+
+      - name: Rename artifacts with upstream SHA
+        shell: bash
+        run: |
+          cd dist
+          for f in *.dmg *.exe; do
+            [ -e "$f" ] || continue
+            new="${f/${VERSION}/${VERSION}-${SHA}}"
+            mv "$f" "$new"
+            echo "Renamed: $f -> $new"
+          done
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}-${{ env.VERSION }}-${{ env.SHA }}
+          path: ${{ matrix.glob }}
+          if-no-files-found: error
+
+  release:
+    if: inputs.upload_release == 'true'
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Resolve submodule ref (latest / custom)
+        shell: bash
+        run: |
+          REF="${{ inputs.upstream_ref }}"
+          if [ -n "$REF" ]; then
+            git -C reze-design fetch --tags --force origin
+            if [ "$REF" = "latest" ]; then
+              LATEST_TAG=$(git -C reze-design ls-remote --tags origin | grep -oE 'refs/tags/v?[0-9][0-9.]*$' | sed 's#refs/tags/##' | sort -t. -k1,1n -k2,2n -k3,3n | tail -1)
+              if [ -n "$LATEST_TAG" ]; then
+                echo "Detected latest tag: $LATEST_TAG"
+                git -C reze-design checkout "$LATEST_TAG"
+              else
+                git -C reze-design fetch --force origin HEAD
+                HEAD_SHA=$(git -C reze-design rev-parse --short FETCH_HEAD)
+                echo "No tags found, using default branch HEAD: $HEAD_SHA"
+                git -C reze-design checkout --detach FETCH_HEAD
+              fi
+            elif [ "$REF" = "latest-commit" ]; then
+              git -C reze-design fetch --force origin HEAD
+              HEAD_SHA=$(git -C reze-design rev-parse --short FETCH_HEAD)
+              echo "Using default branch HEAD: $HEAD_SHA"
+              git -C reze-design checkout --detach FETCH_HEAD
+            else
+              git -C reze-design checkout "$REF"
+            fi
+            echo "Submodule now at: $(git -C reze-design rev-parse --short HEAD)"
+          fi
+
+      - name: Capture upstream commit SHA
+        shell: bash
+        run: |
+          SHA=$(git -C reze-design rev-parse --short HEAD)
+          echo "SHA=$SHA" >> "$GITHUB_ENV"
+
+      - name: Sync version
+        shell: bash
+        run: |
+          if [ -n "${{ inputs.version_override }}" ]; then
+            VERSION="${{ inputs.version_override }}"
+          else
+            VERSION=$(node -p "require('./reze-design/package.json').version")
+          fi
+          VERSION="${VERSION#v}"
+          node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json','utf8'));p.version=process.argv[1];fs.writeFileSync('package.json',JSON.stringify(p,null,2)+'\n')" "$VERSION"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Download installers
+        uses: actions/download-artifact@v4
+        with:
+          pattern: installer-*
+          path: installers
+          merge-multiple: true
+
+      - name: Publish Pre-release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: installers/*
+          tag_name: v${{ env.VERSION }}
+          name: RezeDesign v${{ env.VERSION }}
+          prerelease: true
+          allowUpdates: true
