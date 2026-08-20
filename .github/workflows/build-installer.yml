@@ -122,7 +122,7 @@ jobs:
           if-no-files-found: error
 
   release:
-    if: inputs.upload_release == 'true'
+    if: inputs.upload_release
     needs: build
     runs-on: ubuntu-latest
     steps:
