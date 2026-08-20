@@ -20,7 +20,7 @@ Reze Design Desktop 是一款跨平台的开源 [MMD（MikuMikuDance）](https:/
 
 只想下载安装包、或不想在本地折腾打包环境?可直接用 GitHub Actions 在云端一键打包 Windows 与 macOS 两个平台的安装包:
 
-- **直接下载**:进入仓库 **Actions** 页,选择 `Build Installer (Windows & macOS)` 工作流,Run 一次会同时产出两个平台 → 打开最近一次成功的运行 → 在页面底部 **Artifacts** 下载 `installer-windows-<版本>-<SHA>` / `installer-macos-<版本>-<SHA>`,解压即得 `RezeDesign-<版本>-<SHA>-Setup.exe` / `RezeDesign-<版本>-<SHA>.dmg`(<SHA> 为上一步对应上游提交的短哈希)。
+- **直接下载**:进入仓库 **Actions** 页,选择 `Build Installer (Windows & macOS)` 工作流,Run 一次会同时产出两个平台 → 打开最近一次成功的运行 → 在页面底部 **Artifacts** 下载 `installer-windows-<版本>-<SHA>` / `installer-macos-<版本>-<SHA>`,解压即得 `Reze-Design-Desktop-<版本>-windows-<SHA>-Setup.exe` / `Reze-Design-Desktop-<版本>-macos-<SHA>.dmg`(<SHA> 为上一步对应上游提交的短哈希)。
   > 注意:GitHub Actions 产物(Artifacts)**需要登录 GitHub 账号才能下载**,未登录时看不到下载入口。
 - **自行打包(Fork)**:Fork 本仓库(保持 public 即可使用 GitHub 公共仓库的免费构建额度)→ 在自己的 Fork 仓库打开 **Actions** → 选择 `Build Installer (Windows & macOS)` 工作流 → **Run workflow**:
   - `upstream_ref` 留空:按仓库**已适配的上游版本**(当前为上游 v0.5.1,对应提交 d17f51f)打包;

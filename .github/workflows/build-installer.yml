@@ -109,7 +109,8 @@ jobs:
           cd dist
           for f in *.dmg *.exe; do
             [ -e "$f" ] || continue
-            new="${f/${VERSION}/${VERSION}-${SHA}}"
+            new="${f/RezeDesign/Reze-Design-Desktop}"
+            new="${new/${VERSION}/${VERSION}-${{ matrix.platform }}-${SHA}}"
             mv "$f" "$new"
             echo "Renamed: $f -> $new"
           done
@@ -191,11 +192,30 @@ jobs:
           path: installers
           merge-multiple: true
 
+      - name: Compose release body
+        shell: bash
+        run: |
+          git -C reze-design fetch --unshallow --tags --force origin 2>/dev/null || git -C reze-design fetch --tags --force origin
+          LAST_TAG=$(git -C reze-design describe --tags --abbrev=0 HEAD 2>/dev/null || echo "")
+          {
+            echo "基于上游 Web 版 reze-design 的 $SHA 构建的离线本地桌面版，支持 macOS 与 Windows。"
+            echo
+            echo "如果当前桌面版较为落后，可直接使用网页版；或 Fork 本项目，在 Actions 中自行打包构建最新安装包。"
+            if [ -n "$LAST_TAG" ]; then
+              echo
+              echo "上游更新（$LAST_TAG → $SHA）："
+              git -C reze-design log --oneline "$LAST_TAG"..HEAD | sed 's/^/- /'
+            fi
+          } > body.md
+          echo "--- release body ---"
+          cat body.md
+
       - name: Publish Pre-release
         uses: softprops/action-gh-release@v2
         with:
           files: installers/*
           tag_name: v${{ env.VERSION }}
-          name: RezeDesign v${{ env.VERSION }}
+          name: Reze Design Desktop v${{ env.VERSION }}
+          body_path: body.md
           prerelease: true
           allowUpdates: true
