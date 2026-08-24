@@ -23,7 +23,7 @@ Reze Design Desktop 是一款跨平台的开源 [MMD（MikuMikuDance）](https:/
 - **直接下载**:进入仓库 **Actions** 页,选择 `Build Installer (Windows & macOS)` 工作流,Run 一次会同时产出两个平台 → 打开最近一次成功的运行 → 在页面底部 **Artifacts** 下载 `installer-windows-<版本>-<SHA>` / `installer-macos-<版本>-<SHA>`,解压即得 `Reze-Design-Desktop-<版本>-windows-<SHA>-Setup.exe` / `Reze-Design-Desktop-<版本>-macos-<SHA>.dmg`(<SHA> 为上一步对应上游提交的短哈希)。
   > 注意:GitHub Actions 产物(Artifacts)**需要登录 GitHub 账号才能下载**,未登录时看不到下载入口;macOS 版未签名,首次打开若被拦见下方"macOS 未签名放行"。
 - **自行打包(Fork)**:Fork 本仓库(保持 public 即可使用 GitHub 公共仓库的免费构建额度)→ 在自己的 Fork 仓库打开 **Actions** → 选择 `Build Installer (Windows & macOS)` 工作流 → **Run workflow**:
-  - `upstream_ref` 留空:按仓库**已适配的上游版本**(当前为上游 v0.6.0,对应提交 198c6ed)打包;
+  - `upstream_ref` 留空:按仓库**已适配的上游版本**(当前为上游 v0.6.4,对应提交 92e2c6c)打包;
   - 也可填 `latest-commit`(上游默认分支最新提交)/ `latest`(最新 tag)/ 具体 tag 或 commit SHA;
   - `version_override` 可强制指定产物版本号,留空则自动读取上游 `package.json` 的 version;
   - 勾选 `upload_release`(默认不勾)时,构建成功后会把 win/mac 两个安装包上传到该仓库同一个 tag 的 **Pre-release**(可随时删除/编辑/转正式);
@@ -80,7 +80,7 @@ electron/            Electron 主进程与 preload
 scripts/             dev / dist / make-icon / after-pack
 resources/           说明文档 + 发行剥离版默认场景
 config.json          在线地址、更新地址、端口
-reze-design/         子模块(上游 reze-design v0.6.0)
+reze-design/         子模块(上游 reze-design v0.6.4)
 ```
 
 ## License
