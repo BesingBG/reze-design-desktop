@@ -206,6 +206,14 @@ jobs:
               echo "上游更新（$LAST_TAG → $SHA）："
               git -C reze-design log --oneline "$LAST_TAG"..HEAD | sed 's/^/- /'
             fi
+            echo
+            echo "---"
+            echo
+            echo "## ⭐ Star this project / 给个 Star 吧"
+            echo
+            echo "If you find this useful, please consider giving it a star! It helps others discover this project."
+            echo
+            echo "如果这个项目对你有帮助，欢迎点个 Star！你的支持是我持续更新的动力。"
           } > body.md
           echo "--- release body ---"
           cat body.md
