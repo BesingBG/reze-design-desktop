@@ -66,7 +66,7 @@ jobs:
           # 从 Release 的 tag 或 body 中提取上游 SHA
           # 策略: 从 release body 里匹配 SHA (格式: "SHA: xxxxxxx")
           RELEASE_BODY=$(gh release view "$LATEST_TAG" --json body --jq '.body' 2>/dev/null || echo "")
-          RELEASE_SHA=$(echo "$RELEASE_BODY" | grep -oE 'SHA: [a-f0-9]{7,}' | head -1 | awk '{print $2}' || true)
+          RELEASE_SHA=$(echo "$RELEASE_BODY" | grep -oE '\([a-f0-9]{7,}\)' | head -1 | tr -d '()' || true)
 
           # 如果 body 里没有 SHA，尝试从 tag 对应的 commit message 里提取
           if [ -z "$RELEASE_SHA" ]; then
