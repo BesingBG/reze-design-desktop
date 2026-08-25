@@ -9,9 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  # ──────────────────────────────────────────────────────────────────────
   # Job 1: 检查上游是否有更新
-  # ──────────────────────────────────────────────────────────────────────
   check:
     runs-on: ubuntu-latest
     outputs:
@@ -95,9 +93,7 @@ jobs:
             echo "has_update=true" >> "$GITHUB_OUTPUT"
           fi
 
-  # ──────────────────────────────────────────────────────────────────────
   # Job 2: 构建安装包 (仅当有更新时)
-  # ──────────────────────────────────────────────────────────────────────
   build:
     needs: check
     if: needs.check.outputs.has_update == 'true'
@@ -170,9 +166,7 @@ jobs:
           path: ${{ matrix.glob }}
           if-no-files-found: error
 
-  # ──────────────────────────────────────────────────────────────────────
   # Job 3: 发布 Pre-release (仅当有更新时)
-  # ──────────────────────────────────────────────────────────────────────
   release:
     needs: [check, build]
     if: needs.check.outputs.has_update == 'true'
