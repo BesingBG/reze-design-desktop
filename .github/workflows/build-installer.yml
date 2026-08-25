@@ -198,17 +198,11 @@ jobs:
           git -C reze-design fetch --unshallow --tags --force origin 2>/dev/null || git -C reze-design fetch --tags --force origin
           LAST_TAG=$(git -C reze-design describe --tags --abbrev=0 HEAD 2>/dev/null || echo "")
           {
-            echo "基于上游 Web 版 reze-design 的 \`${SHA}\` 构建的离线本地桌面版，支持 macOS 与 Windows。"
+            echo "基于上游 Web 版 reze-design v${VERSION} (\`${SHA}\`) 构建的离线本地桌面版，支持 macOS 与 Windows。"
             echo
-            echo "> **SHA:** ${SHA}"
-            echo "> **上游版本:** v${VERSION}"
+            echo "> **上游版本:** v${VERSION} (${SHA})"
             echo
             echo "如果当前桌面版较为落后，可直接使用网页版；或 Fork 本项目，在 Actions 中自行打包构建最新安装包。"
-            if [ -n "$LAST_TAG" ]; then
-              echo
-              echo "上游更新（$LAST_TAG → $SHA）："
-              git -C reze-design log --oneline "$LAST_TAG"..HEAD | sed 's/^/- /'
-            fi
             echo
             echo "---"
             echo
