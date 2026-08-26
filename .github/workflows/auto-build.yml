@@ -10,7 +10,6 @@ permissions:
   contents: write
 
 jobs:
-  # Job 1: 检查上游是否有更新
   check:
     runs-on: ubuntu-latest
     outputs:
@@ -22,26 +21,19 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
-          fetch-depth: 0  # 需要完整历史来比较 SHA
-
-      - name: Fetch upstream
-        shell: bash
-        run: |
-          git -C reze-design fetch --tags --force origin
+          fetch-depth: 0
 
       - name: Resolve upstream HEAD
         id: resolve
         shell: bash
         run: |
-          # 取 upstream main 分支最新 commit
-          UPSTREAM_SHA=$(git -C reze-design rev-parse --short origin/main)
+          git -C reze-design fetch --tags --force origin
+          git -C reze-design checkout origin/main
+          UPSTREAM_SHA=$(git -C reze-design rev-parse --short HEAD)
           echo "Upstream HEAD = $UPSTREAM_SHA"
-
-          # 读取版本号
           VERSION=$(node -p "require('./reze-design/package.json').version")
           VERSION="${VERSION#v}"
           echo "Upstream version = $VERSION"
-
           echo "SHA=$UPSTREAM_SHA" >> "$GITHUB_OUTPUT"
           echo "VERSION=$VERSION" >> "$GITHUB_OUTPUT"
 
@@ -52,40 +44,26 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "Checking latest release..."
-
-          # 获取最新 Release 的 tag
           LATEST_TAG=$(gh release list --limit 1 --json tagName --jq '.[0].tagName' 2>/dev/null || echo "")
-
           if [ -z "$LATEST_TAG" ]; then
             echo "No existing release found — first build"
             echo "has_update=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-
           echo "Latest release tag: $LATEST_TAG"
-
-          # 从 Release 的 tag 或 body 中提取上游 SHA
-          # 策略: 从 release body 里匹配 SHA (格式: "SHA: xxxxxxx")
           RELEASE_BODY=$(gh release view "$LATEST_TAG" --json body --jq '.body' 2>/dev/null || echo "")
           RELEASE_SHA=$(echo "$RELEASE_BODY" | grep -oE '\([a-f0-9]{7,}\)' | head -1 | tr -d '()' || true)
-
-          # 如果 body 里没有 SHA，尝试从 tag 对应的 commit message 里提取
           if [ -z "$RELEASE_SHA" ]; then
-            # 从 tag 指向的 commit message 里找 (格式: "... abcdef1")
             RELEASE_SHA=$(git log --oneline -1 "$LATEST_TAG" 2>/dev/null | grep -oE '[a-f0-9]{7,}$' || true)
           fi
-
           CURRENT_SHA="${{ steps.resolve.outputs.SHA }}"
-
           if [ -z "$RELEASE_SHA" ]; then
             echo "Cannot determine previous build SHA — triggering build"
             echo "has_update=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-
           echo "Previous build SHA: $RELEASE_SHA"
           echo "Current  upstream:  $CURRENT_SHA"
-
           if [ "$RELEASE_SHA" = "$CURRENT_SHA" ]; then
             echo "No update — upstream SHA matches latest release"
             echo "has_update=false" >> "$GITHUB_OUTPUT"
@@ -94,7 +72,6 @@ jobs:
             echo "has_update=true" >> "$GITHUB_OUTPUT"
           fi
 
-  # Job 2: 构建安装包 (仅当有更新时)
   build:
     needs: check
     if: needs.check.outputs.has_update == 'true'
@@ -167,7 +144,6 @@ jobs:
           path: ${{ matrix.glob }}
           if-no-files-found: error
 
-  # Job 3: 发布 Pre-release (仅当有更新时)
   release:
     needs: [check, build]
     if: needs.check.outputs.has_update == 'true'
@@ -197,9 +173,7 @@ jobs:
       - name: Compose release body
         shell: bash
         run: |
-          # 找到 upstream 当前 HEAD 对应的最近 tag
           LAST_TAG=$(git -C reze-design describe --tags --abbrev=0 HEAD 2>/dev/null || echo "")
-
           {
             echo "## Reze Design Desktop v${VERSION}"
             echo
@@ -220,7 +194,6 @@ jobs:
             echo
             echo "如果这个项目对你有帮助，欢迎点个 Star！你的支持是我持续更新的动力。"
           } > body.md
-
           echo "--- release body ---"
           cat body.md
 
