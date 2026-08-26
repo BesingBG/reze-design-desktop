@@ -2,8 +2,9 @@ name: Auto Build on Upstream Update
 
 on:
   schedule:
-    - cron: "0 9 * * *"  # UTC 09:00 = 北京 17:00 = 美东 04:00 EST
-  workflow_dispatch:      # 手动触发，方便测试
+    - cron: "0 9 * * *"
+    - cron: "45 9 * * *"
+  workflow_dispatch:
 
 permissions:
   contents: write
