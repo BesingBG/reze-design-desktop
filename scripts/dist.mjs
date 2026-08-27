@@ -30,17 +30,8 @@ function copyEntries(srcDir, destDir, exclude = []) {
   }
 }
 
-// 发行剥离:内置版权资源(public/models、public/animations、public/audios)不出现在发行包内。
-// 空场景由上游 reze-design 原生支持:构建期置 NEXT_PUBLIC_USE_DEFAULT_ASSETS=false
-// (见 lib/default-scene.ts 的 USE_DEFAULT_ASSETS 判定,page.tsx 亦已容错空 cast),因此无需手工改源码。
-const strippedDirs = ["public/models", "public/animations", "public/audios"]
-
-function applyReleaseStrip() {
-  console.log("[dist] 移除内置版权资源(public/models、public/animations、public/audios)...")
-  for (const dir of strippedDirs) {
-    rmSync(join(stagingServer, dir), { recursive: true, force: true })
-  }
-}
+// 发行剥离:v0.6.8 起上游将 demo 资源迁移至 R2 CDN(public/ 不再包含 models/animations/audios),
+// 且空场景已是默认行为(未设 NEXT_PUBLIC_USE_DEFAULT_SCENE=true 时启动即为空场景),无需额外剥离。
 
 // 运行期加载 next.config.ts 需要 typescript;打包后 --omit=dev 已将其移除,next 会
 // 触发自动 `npm install typescript`,在只读安装目录下必然失败并退出。转换为纯 JS
@@ -114,25 +105,21 @@ async function main() {
   rmSync(stagingServer, { recursive: true, force: true })
   mkdirSync(stagingServer, { recursive: true })
   copyEntries(sub, stagingServer, ["node_modules", ".next", ".git", "screenshots"])
-  applyReleaseStrip()
 
   if (skipBuild) {
     if (!existsSync(join(sub, ".next"))) {
       throw new Error("缺少 .next 构建产物,请先执行 npm run build")
     }
     console.warn(
-      "[dist] 警告:--skip-build 直接复用既有 .next。若其不是以 NEXT_PUBLIC_USE_DEFAULT_ASSETS=false 构建,发行包仍会加载内置默认资产,请改用完整构建。",
+      "[dist] 警告:--skip-build 直接复用既有 .next。若其不是以空场景模式构建,请改用完整构建。",
     )
     copy(join(sub, ".next"), join(stagingServer, ".next"))
   } else {
     console.log("[dist] 安装依赖(全量,含构建工具)...")
     await run("npm", ["ci"], { cwd: stagingServer })
     convertNextConfigTsToJs()
-    console.log("[dist] next build(空场景版: NEXT_PUBLIC_USE_DEFAULT_ASSETS=false)...")
-    await run("npm", ["run", "build"], {
-      cwd: stagingServer,
-      env: { ...process.env, NEXT_PUBLIC_USE_DEFAULT_ASSETS: "false" },
-    })
+    console.log("[dist] next build(空场景版,无需设置环境变量,上游默认即为空场景)...")
+    await run("npm", ["run", "build"], { cwd: stagingServer })
   }
 
   console.log("[dist] 安装生产依赖(仅 dependencies)...")
