@@ -35,10 +35,13 @@ function copyEntries(srcDir, destDir, exclude = []) {
 
 // 运行期加载 next.config.ts 需要 typescript;打包后 --omit=dev 已将其移除,next 会
 // 触发自动 `npm install typescript`,在只读安装目录下必然失败并退出。转换为纯 JS
-// 配置 next.config.js 后不再需要 TypeScript,彻底消除该运行时依赖。
+// 配置 next.config.js 后不再需要 TypeScript,彻底消除这个运行时依赖。
 // 注意:值导入(含 import ... from "./package.json")必须归一为 CommonJS require(),否则
 // Node 22 模块语法检测会将该 .js 当作 ESM 执行(Next 对 config 不做转译),裸导入 JSON 因
 // 缺少 `with { type: "json" }` 抛 ERR_IMPORT_ATTRIBUTE_MISSING 导致 next build 失败。
+// 上游随时可能新增 TS 语法(函数返回类型、类型注解……):已知模式在这里剥离,漏网的
+// 由转换后的残留守卫和 node --check 大声拦截——配置错误必须死在构建期,而不是让
+// next build 在一个莫名其妙的 SyntaxError 里。
 function esmImportToCommonJs(line) {
   const namePattern = (named) =>
     named
@@ -70,7 +73,34 @@ function esmImportToCommonJs(line) {
   throw new Error("next.config.ts 转换失败:不支持的 import 语句(需同步更新转换逻辑):\n" + line)
 }
 
-function convertNextConfigTsToJs() {
+/**
+ * 转换后的残留守卫:已知的 TS 语法没能剥干净时,指名道姓地失败。
+ *
+ * 覆盖不了的表达式级语法(参数类型注解、泛型箭头……)由随后的 node --check 兜底。
+ */
+function assertNoTypeScript(js) {
+  const patterns = [
+    [/^\s*(export\s+)?(interface|type|declare|enum|namespace)\s+\w/, "类型/接口声明"],
+    [/^\s*(const|let|var)\s+\w+\s*:\s*\S/, "带类型注解的声明"],
+    [/\)\s*:\s*[A-Za-z_{[]/, "函数返回类型"],
+    [/\bsatisfies\s+\w/, "satisfies 表达式"],
+    [/^\s*import\s+type\s/, "import type 语句"],
+  ]
+  const lines = js.split("\n")
+  for (let i = 0; i < lines.length; i++) {
+    for (const [re, what] of patterns) {
+      if (re.test(lines[i])) {
+        throw new Error(
+          `next.config.ts 转换后仍残留 TS 语法(${what}),第 ${i + 1} 行:\n` +
+            `  ${lines[i].trim()}\n` +
+            "上游改了配置写法,需同步更新 scripts/dist.mjs 的转换逻辑。",
+        )
+      }
+    }
+  }
+}
+
+async function convertNextConfigTsToJs() {
   const tsPath = join(stagingServer, "next.config.ts")
   if (!existsSync(tsPath)) {
     console.log("[dist] 无 next.config.ts,跳过配置转换")
@@ -92,10 +122,14 @@ function convertNextConfigTsToJs() {
     .map((line) => (/^\s*import\b/.test(line) ? esmImportToCommonJs(line) : line))
     .join("\n")
     .replace(/const\s+(nextConfig|config)\s*:\s*NextConfig\s*=\s*\{/, "module.exports = {")
+    // 函数返回类型:function engineOutsideProject(): boolean { → function engineOutsideProject() {
+    .replace(/^(\s*function\s+\w+\s*\([^)]*\))\s*:\s*[^{\n]+\{/gm, "$1 {")
+  assertNoTypeScript(js)
   const jsPath = join(stagingServer, "next.config.js")
   writeFileSync(jsPath, hasCrlf ? js.replace(/\n/g, "\r\n") : js)
   rmSync(tsPath, { force: true })
-  console.log("[dist] next.config.ts → next.config.js(消除运行时 TypeScript 依赖;值导入归一为 require)")
+  await run(process.execPath, ["--check", jsPath])
+  console.log("[dist] next.config.ts → next.config.js(消除运行时 TypeScript 依赖;值导入归一为 require;node --check 通过)")
 }
 
 async function main() {
@@ -117,7 +151,7 @@ async function main() {
   } else {
     console.log("[dist] 安装依赖(全量,含构建工具)...")
     await run("npm", ["ci"], { cwd: stagingServer })
-    convertNextConfigTsToJs()
+    await convertNextConfigTsToJs()
     console.log("[dist] next build(空场景版,无需设置环境变量,上游默认即为空场景)...")
     await run("npm", ["run", "build"], { cwd: stagingServer })
   }
