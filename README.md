@@ -21,7 +21,7 @@ No local build environment needed? Use GitHub Actions to build Windows & macOS i
 - **Direct download**: Go to the repository **Actions** tab, select `Build Installer (Windows & macOS)`, and open the most recent successful run → download `installer-windows-<version>-<sha>` / `installer-macos-<version>-<sha>` from **Artifacts** at the bottom → unzip to get `Reze-Design-Desktop-<version>-windows-<sha>-Setup.exe` / `Reze-Design-Desktop-<version>-macos-<sha>.dmg`.
   > **Note**: GitHub Actions artifacts require a logged-in GitHub account to download.
 - **Fork & build**: Fork this repo (keep it public to use GitHub's free build minutes) → go to **Actions** in your fork → select `Build Installer (Windows & macOS)` → **Run workflow**:
-  - `upstream_ref` left empty: builds from the **currently adapted upstream version** (currently v0.6.9, commit 8753d32);
+  - `upstream_ref` left empty: builds from the **currently adapted upstream version** (currently v1.2.1, commit b9c4ca8);
   - Or fill in `latest-commit` (latest default branch commit) / `latest` (latest tag) / a specific tag or commit SHA;
   - `version_override` forces a specific version number; leave empty to auto-read from upstream `package.json`;
   - Check `upload_release` (unchecked by default) to upload win/mac installers as a **Pre-release** to the same tag on this repo (can be edited/deleted/promoted to release later);
