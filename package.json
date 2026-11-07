@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "dist": "node scripts/dist.mjs",
+    "fetch-stock": "node scripts/fetch-stock.mjs",
     "make-icon": "node scripts/make-icon.mjs"
   },
   "build": {
