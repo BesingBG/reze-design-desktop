@@ -9,6 +9,7 @@ A cross-platform desktop app for editing, playing, and rendering MMD (MikuMikuDa
 ## Features
 
 - **Offline local rendering & export**: Electron embeds `next start`, no external services needed
+- **Offline material library**: upstream v1.4.2+ serves built-in grades/graphs/effects from a database, which is empty without `DATABASE_URL`; builds patch `/api/library/stock` with a committed snapshot (refresh with `npm run fetch-stock`)
 - WebGPU auto-detection with troubleshooting guide (dual GPU / driver issues)
 - Release build: upstream v0.6.8+ moves demo assets to R2 CDN; release package defaults to an empty scene — bring your own local models
 - Online author site link and update check (configured in `config.json`)
@@ -21,9 +22,10 @@ No local build environment needed? Use GitHub Actions to build Windows & macOS i
 - **Direct download**: Go to the repository **Actions** tab, select `Build Installer (Windows & macOS)`, and open the most recent successful run → download `installer-windows-<version>-<sha>` / `installer-macos-<version>-<sha>` from **Artifacts** at the bottom → unzip to get `Reze-Design-Desktop-<version>-windows-<sha>-Setup.exe` / `Reze-Design-Desktop-<version>-macos-<sha>.dmg`.
   > **Note**: GitHub Actions artifacts require a logged-in GitHub account to download.
 - **Fork & build**: Fork this repo (keep it public to use GitHub's free build minutes) → go to **Actions** in your fork → select `Build Installer (Windows & macOS)` → **Run workflow**:
-  - `upstream_ref` left empty: builds from the **currently adapted upstream version** (currently v1.2.1, commit b9c4ca8);
+  - `upstream_ref` left empty: builds from the **currently adapted upstream version** (currently v1.4.6, commit ed5a25c);
   - Or fill in `latest-commit` (latest default branch commit) / `latest` (latest tag) / a specific tag or commit SHA;
   - `version_override` forces a specific version number; leave empty to auto-read from upstream `package.json`;
+  - `stock_source` sets where the offline material-library snapshot comes from: `auto` (default) fetches the latest `/api/library/stock` and falls back to the committed snapshot on failure, `repo` uses only the committed snapshot (reproducible), `live` requires the live snapshot (fails otherwise);
   - Check `upload_release` (unchecked by default) to upload win/mac installers as a **Pre-release** to the same tag on this repo (can be edited/deleted/promoted to release later);
   - After build, download from **Artifacts** at the bottom of the run.
 - **Trigger**: The workflow is **manual trigger** (`workflow_dispatch`); no scheduled auto-build is enabled. Run it manually from the repository Actions page.

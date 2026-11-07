@@ -9,6 +9,7 @@
 ## 功能
 
 - **离线本地渲染导出**：Electron 内嵌 `next start`，无需外部服务
+- **离线材质库**：上游 v1.4.2 起内置 grade/graph/effect 改为数据库下发，无 `DATABASE_URL` 时为空；构建时用随包快照覆盖 `/api/library/stock`（内容更新时运行 `npm run fetch-stock` 刷新）
 - WebGPU 自动检测与说明指引（双显卡/驱动问题排查）
 - 发行剥离：上游 v0.6.8 起 demo 资源迁移至 R2 CDN，发行包默认为空场景，自行导入本地模型
 - 在线访问作者站点、检查更新入口（配置于 `config.json`）
@@ -21,9 +22,10 @@
 - **直接下载**：进入仓库 **Actions** 页，选择 `Build Installer (Windows & macOS)` 工作流，Run 一次会同时产出两个平台 → 打开最近一次成功的运行 → 在页面底部 **Artifacts** 下载 `installer-windows-<版本>-<SHA>` / `installer-macos-<版本>-<SHA>`，解压即得 `Reze-Design-Desktop-<版本>-windows-<SHA>-Setup.exe` / `Reze-Design-Desktop-<版本>-macos-<SHA>.dmg`。
   > **注意**：GitHub Actions 产物（Artifacts）**需要登录 GitHub 账号才能下载**。
 - **自行打包（Fork）**：Fork 本仓库（保持 public 即可使用 GitHub 公共仓库的免费构建额度）→ 在自己的 Fork 仓库打开 **Actions** → 选择 `Build Installer (Windows & macOS)` 工作流 → **Run workflow**：
-  - `upstream_ref` 留空：按仓库**已适配的上游版本**（当前为上游 v1.2.1，对应提交 b9c4ca8）打包；
+  - `upstream_ref` 留空：按仓库**已适配的上游版本**（当前为上游 v1.4.6，对应提交 ed5a25c）打包；
   - 也可填 `latest-commit`（上游默认分支最新提交）/ `latest`（最新 tag）/ 具体 tag 或 commit SHA；
   - `version_override` 可强制指定产物版本号，留空则自动读取上游 `package.json` 的 version；
+  - `stock_source` 指定离线材质库快照来源：`auto`（默认，先抓线上最新 `/api/library/stock`，失败回退仓库快照）、`repo`（仅用仓库快照，可复现）、`live`（仅用线上快照，失败即终止）；
   - 勾选 `upload_release`（默认不勾）时，构建成功后会把 win/mac 两个安装包上传到该仓库同一个 tag 的 **Pre-release**（可随时删除/编辑/转正式）；
   - 构建完成后，同样到自己 Fork 的运行记录底部 **Artifacts** 下载安装包。
 - **触发方式**：该工作流为**手动触发**（`workflow_dispatch`），当前**未开启定时自动打包**；在仓库主页 Actions 页手动运行。
