@@ -7,6 +7,14 @@ on:
         description: "上游子模块版本:latest-commit(默认分支最新提交)/ latest(最新 tag)/ 具体 tag 或 commit SHA / 留空(仓库已适配版本)"
         type: string
         default: ""
+      stock_source:
+        description: "材质库快照来源:auto=线上优先/失败回退仓库快照(默认),repo=仅仓库快照(可复现),live=仅线上(失败即终止)"
+        type: choice
+        options:
+          - auto
+          - repo
+          - live
+        default: auto
       version_override:
         description: "强制指定产物版本号(如 0.4.0);留空 = 自动读取子模块 package.json 的 version"
         type: string
@@ -97,6 +105,7 @@ jobs:
       - name: Build (${{ matrix.platform }})
         shell: bash
         env:
+          STOCK_SOURCE: ${{ inputs.stock_source }}
           ELECTRON_MIRROR: https://github.com/electron/electron/releases/download/
           ELECTRON_BUILDER_BINARIES_MIRROR: https://github.com/electron-userland/electron-builder-binaries/releases/download/
         run: |

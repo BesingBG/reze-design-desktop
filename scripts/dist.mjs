@@ -1,8 +1,10 @@
-import { spawn } from "node:child_process"
+import { spawn, spawnSync } from "node:child_process"
 import { createRequire } from "node:module"
 import { existsSync, rmSync, mkdirSync, cpSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
-import { join, dirname } from "node:path"
+import { createServer } from "node:net"
+import { join, dirname, relative } from "node:path"
 import { fileURLToPath } from "node:url"
+import { fetchStock, readRepoStock, summarize } from "./lib/stock.mjs"
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const root = join(__dirname, "..")
@@ -132,6 +134,220 @@ async function convertNextConfigTsToJs() {
   console.log("[dist] next.config.ts → next.config.js(消除运行时 TypeScript 依赖;值导入归一为 require;node --check 通过)")
 }
 
+// 上游 1.4.2 起内置材质库改由 /api/library/stock 从数据库下发,无 DATABASE_URL 时
+// lib/stock-rows.ts 直接返回 [],离线桌面版因此材质库为空。这里在构建期用一份
+// stock 接口快照覆盖该路由(线上优先/失败回退仓库快照),并在构建后真起一次
+// next start 自检,保证绝不出"材质库为空"的包。上游改结构时守卫会大声失败。
+const STOCK_ROUTE = join("app", "api", "library", "stock", "route.ts")
+const STOCK_PUBLIC = join("public", "_reze-stock.json")
+
+const STOCK_ROUTE_TS = [
+  'import { readFileSync } from "node:fs"',
+  'import { join } from "node:path"',
+  "",
+  "let cached: string | null = null",
+  "",
+  "export async function GET() {",
+  '  cached ??= readFileSync(join(process.cwd(), "public", "_reze-stock.json"), "utf8")',
+  "  return new Response(cached, {",
+  "    headers: {",
+  '      "content-type": "application/json; charset=utf-8",',
+  '      "cache-control": "public, max-age=31536000, immutable",',
+  "    },",
+  "  })",
+  "}",
+  "",
+].join("\n")
+
+function isStockEra(dir) {
+  return existsSync(join(dir, "lib", "stock.ts")) || existsSync(join(dir, STOCK_ROUTE))
+}
+
+function findStockRoute(dir) {
+  const exact = join(dir, STOCK_ROUTE)
+  if (existsSync(exact)) return exact
+  const stack = [join(dir, "app")]
+  while (stack.length > 0) {
+    const current = stack.pop()
+    if (!existsSync(current)) continue
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      const path = join(current, entry.name)
+      if (entry.isDirectory()) stack.push(path)
+      else if (/^route\.(ts|tsx|js|mjs)$/.test(entry.name) && readFileSync(path, "utf8").includes("stockRows")) {
+        return path
+      }
+    }
+  }
+  return null
+}
+
+function guardStockContract(dir) {
+  const lib = join(dir, "lib", "stock.ts")
+  if (!existsSync(lib)) {
+    throw new Error("[stock] 找不到 lib/stock.ts,上游结构变了,需同步更新 scripts/dist.mjs 的材质库补丁")
+  }
+  const src = readFileSync(lib, "utf8")
+  if (!src.includes('"/api/library/stock"')) {
+    throw new Error('[stock] lib/stock.ts 不再请求 "/api/library/stock",上游改了拉取地址,需同步更新 scripts/dist.mjs')
+  }
+  if (!/type\s+Served\s*=\s*\{[^}]*\bitems\b[^}]*\bstyles\b[^}]*\bstyleGraphs\b/s.test(src)) {
+    throw new Error("[stock] lib/stock.ts 的 Served 类型不再包含 items/styles/styleGraphs,上游改了响应字段,需同步更新 scripts/dist.mjs")
+  }
+}
+
+async function resolveStock(root) {
+  const mode = (process.env.STOCK_SOURCE ?? "").trim().toLowerCase() || "auto"
+  if (!["auto", "repo", "live"].includes(mode)) {
+    throw new Error(`[stock] STOCK_SOURCE 只能是 auto / repo / live,收到 ${JSON.stringify(mode)}`)
+  }
+  let repo = null
+  try {
+    repo = readRepoStock(root)
+  } catch (err) {
+    if (mode === "repo") throw new Error(`[stock] 仓库快照不可用: ${err.message}`)
+    console.warn(`[stock] 仓库快照不可用: ${err.message}`)
+  }
+  if (mode === "repo") {
+    console.log(`[stock] 使用仓库快照 (${summarize(repo)})`)
+    return repo
+  }
+  try {
+    const live = await fetchStock()
+    console.log(`[stock] 使用线上最新快照 (${summarize(live)}) @ ${live.fetchedAt}`)
+    return live
+  } catch (err) {
+    if (mode === "live") throw new Error(`[stock] 线上快照不可用(STOCK_SOURCE=live): ${err.message}`)
+    if (!repo) throw new Error(`[stock] 线上抓取失败且仓库快照不可用: ${err.message}`)
+    console.warn(`[stock] 线上抓取失败,回退仓库快照: ${err.message}`)
+    console.log(`[stock] 使用仓库快照 (${summarize(repo)})`)
+    return repo
+  }
+}
+
+async function applyStockPatch({ skipBuild }) {
+  if (!isStockEra(stagingServer)) {
+    console.log("[stock] 上游为随包素材版本(无 stock 路由),跳过材质库补丁")
+    return null
+  }
+  if (skipBuild) {
+    throw new Error("[stock] --skip-build 无法应用材质库补丁(复用的 .next 不含覆盖后的路由),请改用完整构建")
+  }
+  guardStockContract(stagingServer)
+  const route = findStockRoute(stagingServer)
+  if (!route) {
+    throw new Error("[stock] 找不到 stock 路由(引用 stockRows 的 route.ts),上游结构变了,需同步更新 scripts/dist.mjs")
+  }
+  const stock = await resolveStock(root)
+  mkdirSync(join(stagingServer, "public"), { recursive: true })
+  writeFileSync(join(stagingServer, STOCK_PUBLIC), stock.text.endsWith("\n") ? stock.text : stock.text + "\n")
+  writeFileSync(
+    join(stagingServer, "public", "_reze-stock.meta.json"),
+    JSON.stringify(
+      {
+        source: stock.source,
+        fetchedAt: stock.fetchedAt,
+        counts: { items: stock.items.length, styles: stock.styles.length, styleGraphs: stock.styleGraphs.length },
+      },
+      null,
+      2,
+    ) + "\n",
+  )
+  writeFileSync(route, STOCK_ROUTE_TS)
+  console.log(`[stock] 已覆盖 ${relative(stagingServer, route)},数据 ${summarize(stock)}`)
+  return stock
+}
+
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const server = createServer()
+    server.once("error", reject)
+    server.listen(0, "127.0.0.1", () => {
+      const port = server.address().port
+      server.close(() => resolve(port))
+    })
+  })
+}
+
+function killServer(child) {
+  if (!child || child.pid == null) return
+  if (process.platform === "win32") {
+    try {
+      spawnSync("taskkill", ["/pid", String(child.pid), "/t", "/f"], { stdio: "ignore", windowsHide: true })
+    } catch {}
+  } else {
+    try {
+      process.kill(-child.pid, "SIGTERM")
+    } catch {}
+  }
+  try {
+    child.kill()
+  } catch {}
+}
+
+async function verifyStockEndpoint() {
+  const nextBin = join(stagingServer, "node_modules", "next", "dist", "bin", "next")
+  if (!existsSync(nextBin)) throw new Error(`[stock] 自检找不到 next: ${nextBin}`)
+  const port = await freePort()
+  const child = spawn(process.execPath, [nextBin, "start", "-p", String(port)], {
+    cwd: stagingServer,
+    env: { ...process.env, NODE_ENV: "production", HOSTNAME: "127.0.0.1", PORT: String(port) },
+    stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
+    detached: process.platform !== "win32",
+  })
+  let output = ""
+  const capture = (chunk) => {
+    const text = String(chunk)
+    output = (output + text).slice(-8000)
+    process.stdout.write(`[stock:server] ${text}`)
+  }
+  child.stdout.on("data", capture)
+  child.stderr.on("data", capture)
+
+  const url = `http://127.0.0.1:${port}/api/library/stock`
+  const deadline = Date.now() + 90_000
+  let lastError = null
+  const connectionError = (err) => {
+    const code = err?.cause?.code ?? err?.code
+    return code === "ECONNREFUSED" || code === "ECONNRESET" || err?.name === "TimeoutError" || err?.name === "AbortError"
+  }
+  try {
+    while (Date.now() < deadline) {
+      if (child.exitCode !== null) {
+        throw new Error(`[stock] 自检: next start 提前退出(code=${child.exitCode})\n${output}`)
+      }
+      try {
+        const res = await fetch(url, { signal: AbortSignal.timeout(15_000) })
+        const text = await res.text()
+        if (!res.ok) {
+          throw new Error(`[stock] 自检失败: HTTP ${res.status}\n${text.slice(0, 500)}`)
+        }
+        let data
+        try {
+          data = JSON.parse(text)
+        } catch {
+          throw new Error(`[stock] 自检失败: 响应不是 JSON\n${text.slice(0, 500)}`)
+        }
+        if (!Array.isArray(data.items) || data.items.length === 0) {
+          throw new Error("[stock] 自检失败: /api/library/stock 返回空 items")
+        }
+        console.log(
+          `[stock] 自检通过: items=${data.items.length} styles=${data.styles?.length ?? 0} styleGraphs=${data.styleGraphs?.length ?? 0}`,
+        )
+        return
+      } catch (err) {
+        if (err?.message?.startsWith("[stock]")) throw err
+        if (!connectionError(err)) throw err
+        lastError = err
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+    }
+    throw new Error(`[stock] 自检超时: ${lastError?.message ?? "未知错误"}\n${output}`)
+  } finally {
+    killServer(child)
+  }
+}
+
 async function main() {
   const skipBuild = process.argv.includes("--skip-build")
 
@@ -139,6 +355,9 @@ async function main() {
   rmSync(stagingServer, { recursive: true, force: true })
   mkdirSync(stagingServer, { recursive: true })
   copyEntries(sub, stagingServer, ["node_modules", ".next", ".git", "screenshots"])
+
+  console.log("[stock] 检查内置材质库快照...")
+  const stockPatch = await applyStockPatch({ skipBuild })
 
   if (skipBuild) {
     if (!existsSync(join(sub, ".next"))) {
@@ -158,6 +377,11 @@ async function main() {
 
   console.log("[dist] 安装生产依赖(仅 dependencies)...")
   await run("npm", ["ci", "--omit=dev", "--no-audit", "--no-fund"], { cwd: stagingServer })
+
+  if (stockPatch) {
+    console.log("[stock] 构建后自检 /api/library/stock ...")
+    await verifyStockEndpoint()
+  }
 
   console.log("[dist] electron-builder 打包...")
   // 本机网络存在 TLS 中间人拦截,electron-builder 的 got 下载会因证书校验失败
