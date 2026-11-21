@@ -22,7 +22,7 @@
 - **直接下载**：进入仓库 **Actions** 页，选择 `Build Installer (Windows & macOS)` 工作流，Run 一次会同时产出两个平台 → 打开最近一次成功的运行 → 在页面底部 **Artifacts** 下载 `installer-windows-<版本>-<SHA>` / `installer-macos-<版本>-<SHA>`，解压即得 `Reze-Design-Desktop-<版本>-windows-<SHA>-Setup.exe` / `Reze-Design-Desktop-<版本>-macos-<SHA>.dmg`。
   > **注意**：GitHub Actions 产物（Artifacts）**需要登录 GitHub 账号才能下载**。
 - **自行打包（Fork）**：Fork 本仓库（保持 public 即可使用 GitHub 公共仓库的免费构建额度）→ 在自己的 Fork 仓库打开 **Actions** → 选择 `Build Installer (Windows & macOS)` 工作流 → **Run workflow**：
-  - `upstream_ref` 留空：按仓库**已适配的上游版本**（当前为上游 v1.4.6，对应提交 ed5a25c）打包；
+  - `upstream_ref` 留空：按仓库**已适配的上游版本**（当前为上游 v1.5.3，对应提交 2c344a4）打包；
   - 也可填 `latest-commit`（上游默认分支最新提交）/ `latest`（最新 tag）/ 具体 tag 或 commit SHA；
   - `version_override` 可强制指定产物版本号，留空则自动读取上游 `package.json` 的 version；
   - `stock_source` 指定离线材质库快照来源：`auto`（默认，先抓线上最新 `/api/library/stock`，失败回退仓库快照）、`repo`（仅用仓库快照，可复现）、`live`（仅用线上快照，失败即终止）；

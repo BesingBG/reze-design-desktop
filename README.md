@@ -22,7 +22,7 @@ No local build environment needed? Use GitHub Actions to build Windows & macOS i
 - **Direct download**: Go to the repository **Actions** tab, select `Build Installer (Windows & macOS)`, and open the most recent successful run → download `installer-windows-<version>-<sha>` / `installer-macos-<version>-<sha>` from **Artifacts** at the bottom → unzip to get `Reze-Design-Desktop-<version>-windows-<sha>-Setup.exe` / `Reze-Design-Desktop-<version>-macos-<sha>.dmg`.
   > **Note**: GitHub Actions artifacts require a logged-in GitHub account to download.
 - **Fork & build**: Fork this repo (keep it public to use GitHub's free build minutes) → go to **Actions** in your fork → select `Build Installer (Windows & macOS)` → **Run workflow**:
-  - `upstream_ref` left empty: builds from the **currently adapted upstream version** (currently v1.4.6, commit ed5a25c);
+  - `upstream_ref` left empty: builds from the **currently adapted upstream version** (currently v1.5.3, commit 2c344a4);
   - Or fill in `latest-commit` (latest default branch commit) / `latest` (latest tag) / a specific tag or commit SHA;
   - `version_override` forces a specific version number; leave empty to auto-read from upstream `package.json`;
   - `stock_source` sets where the offline material-library snapshot comes from: `auto` (default) fetches the latest `/api/library/stock` and falls back to the committed snapshot on failure, `repo` uses only the committed snapshot (reproducible), `live` requires the live snapshot (fails otherwise);
