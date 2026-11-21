@@ -1,9 +1,9 @@
 {
   "source": "https://reze.design/api/library/stock",
-  "fetchedAt": "2026-11-07T10:54:09.000Z",
+  "fetchedAt": "2026-11-21T03:31:11.682Z",
   "counts": {
-    "items": 139,
-    "styles": 6,
-    "styleGraphs": 38
+    "items": 145,
+    "styles": 5,
+    "styleGraphs": 32
   }
 }
