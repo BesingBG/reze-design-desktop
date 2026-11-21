@@ -139,6 +139,7 @@ async function convertNextConfigTsToJs() {
 // stock 接口快照覆盖该路由(线上优先/失败回退仓库快照),并在构建后真起一次
 // next start 自检,保证绝不出"材质库为空"的包。上游改结构时守卫会大声失败。
 const STOCK_ROUTE = join("app", "api", "library", "stock", "route.ts")
+const STOCK_STAMP_ROUTE = join("app", "api", "library", "stock", "stamp", "route.ts")
 const STOCK_PUBLIC = join("public", "_reze-stock.json")
 
 const STOCK_ROUTE_TS = [
@@ -159,6 +160,31 @@ const STOCK_ROUTE_TS = [
   "",
 ].join("\n")
 
+// 上游 1.5.3 起材质库改为两段式:先请求 /api/library/stock/stamp 取内容指纹,
+// 再以 ?v=<指纹> 请求主路由。stamp 路由改为对快照文件取哈希,使换快照时 ?v=
+// 随之变化,主路由的一年 immutable 缓存不会命中旧数据。
+const STOCK_STAMP_TS = [
+  'import { createHash } from "node:crypto"',
+  'import { readFileSync } from "node:fs"',
+  'import { join } from "node:path"',
+  "",
+  "let stamp: string | null = null",
+  "",
+  "export async function GET() {",
+  '  stamp ??= createHash("sha1")',
+  '    .update(readFileSync(join(process.cwd(), "public", "_reze-stock.json")))',
+  '    .digest("base64url")',
+  "    .slice(0, 12)",
+  '  return new Response(JSON.stringify({ v: stamp }), {',
+  "    headers: {",
+  '      "content-type": "application/json; charset=utf-8",',
+  '      "cache-control": "public, max-age=0, must-revalidate",',
+  "    },",
+  "  })",
+  "}",
+  "",
+].join("\n")
+
 function isStockEra(dir) {
   return existsSync(join(dir, "lib", "stock.ts")) || existsSync(join(dir, STOCK_ROUTE))
 }
@@ -173,7 +199,11 @@ function findStockRoute(dir) {
     for (const entry of readdirSync(current, { withFileTypes: true })) {
       const path = join(current, entry.name)
       if (entry.isDirectory()) stack.push(path)
-      else if (/^route\.(ts|tsx|js|mjs)$/.test(entry.name) && readFileSync(path, "utf8").includes("stockRows")) {
+      else if (
+        /^route\.(ts|tsx|js|mjs)$/.test(entry.name) &&
+        !/[/\\]stamp[/\\]/.test(path) &&
+        /\bstock(Rows|Shelf)\b/.test(readFileSync(path, "utf8"))
+      ) {
         return path
       }
     }
@@ -187,8 +217,13 @@ function guardStockContract(dir) {
     throw new Error("[stock] 找不到 lib/stock.ts,上游结构变了,需同步更新 scripts/dist.mjs 的材质库补丁")
   }
   const src = readFileSync(lib, "utf8")
-  if (!src.includes('"/api/library/stock"')) {
-    throw new Error('[stock] lib/stock.ts 不再请求 "/api/library/stock",上游改了拉取地址,需同步更新 scripts/dist.mjs')
+  const asksStock =
+    src.includes('"/api/library/stock"') ||
+    (src.includes('"/api/library/stock/stamp"') && src.includes("/api/library/stock?v="))
+  if (!asksStock) {
+    throw new Error(
+      '[stock] lib/stock.ts 不再请求 "/api/library/stock" 或 "/api/library/stock/stamp" + "/api/library/stock?v=",上游改了拉取地址,需同步更新 scripts/dist.mjs',
+    )
   }
   if (!/type\s+Served\s*=\s*\{[^}]*\bitems\b[^}]*\bstyles\b[^}]*\bstyleGraphs\b/s.test(src)) {
     throw new Error("[stock] lib/stock.ts 的 Served 类型不再包含 items/styles/styleGraphs,上游改了响应字段,需同步更新 scripts/dist.mjs")
@@ -235,7 +270,12 @@ async function applyStockPatch({ skipBuild }) {
   guardStockContract(stagingServer)
   const route = findStockRoute(stagingServer)
   if (!route) {
-    throw new Error("[stock] 找不到 stock 路由(引用 stockRows 的 route.ts),上游结构变了,需同步更新 scripts/dist.mjs")
+    throw new Error("[stock] 找不到 stock 路由(引用 stockRows/stockShelf 的 route.ts),上游结构变了,需同步更新 scripts/dist.mjs")
+  }
+  const stamped = readFileSync(route, "utf8").includes("stampedJson")
+  const stampRoute = join(stagingServer, STOCK_STAMP_ROUTE)
+  if (stamped && !existsSync(stampRoute)) {
+    throw new Error("[stock] 主路由使用 stampedJson 但找不到 app/api/library/stock/stamp/route.ts,上游结构变了,需同步更新 scripts/dist.mjs")
   }
   const stock = await resolveStock(root)
   mkdirSync(join(stagingServer, "public"), { recursive: true })
@@ -254,7 +294,11 @@ async function applyStockPatch({ skipBuild }) {
   )
   writeFileSync(route, STOCK_ROUTE_TS)
   console.log(`[stock] 已覆盖 ${relative(stagingServer, route)},数据 ${summarize(stock)}`)
-  return stock
+  if (stamped) {
+    writeFileSync(stampRoute, STOCK_STAMP_TS)
+    console.log(`[stock] 已覆盖 ${relative(stagingServer, stampRoute)}(快照内容哈希作 ?v=)`)
+  }
+  return { ...stock, stamped }
 }
 
 function freePort() {
@@ -284,7 +328,7 @@ function killServer(child) {
   } catch {}
 }
 
-async function verifyStockEndpoint() {
+async function verifyStockEndpoint({ stamped = false } = {}) {
   const nextBin = join(stagingServer, "node_modules", "next", "dist", "bin", "next")
   if (!existsSync(nextBin)) throw new Error(`[stock] 自检找不到 next: ${nextBin}`)
   const port = await freePort()
@@ -304,12 +348,55 @@ async function verifyStockEndpoint() {
   child.stdout.on("data", capture)
   child.stderr.on("data", capture)
 
-  const url = `http://127.0.0.1:${port}/api/library/stock`
+  const base = `http://127.0.0.1:${port}/api/library/stock`
   const deadline = Date.now() + 90_000
   let lastError = null
   const connectionError = (err) => {
     const code = err?.cause?.code ?? err?.code
     return code === "ECONNREFUSED" || code === "ECONNRESET" || err?.name === "TimeoutError" || err?.name === "AbortError"
+  }
+  const check = async () => {
+    let url = base
+    let stamp = null
+    if (stamped) {
+      const stampRes = await fetch(`${base}/stamp`, { signal: AbortSignal.timeout(15_000) })
+      const stampText = await stampRes.text()
+      if (!stampRes.ok) {
+        throw new Error(`[stock] 自检失败: /api/library/stock/stamp HTTP ${stampRes.status}\n${stampText.slice(0, 500)}`)
+      }
+      let stampBody
+      try {
+        stampBody = JSON.parse(stampText)
+      } catch {
+        throw new Error(`[stock] 自检失败: /api/library/stock/stamp 响应不是 JSON\n${stampText.slice(0, 500)}`)
+      }
+      if (typeof stampBody?.v !== "string" || stampBody.v.length === 0) {
+        throw new Error("[stock] 自检失败: /api/library/stock/stamp 未返回 v")
+      }
+      stamp = stampBody.v
+      url = `${base}?v=${encodeURIComponent(stamp)}`
+    }
+    const res = await fetch(url, { signal: AbortSignal.timeout(15_000) })
+    const text = await res.text()
+    if (!res.ok) {
+      throw new Error(`[stock] 自检失败: HTTP ${res.status}\n${text.slice(0, 500)}`)
+    }
+    const cacheControl = res.headers.get("cache-control") ?? ""
+    if (stamped && !cacheControl.includes("immutable")) {
+      throw new Error(`[stock] 自检失败: ?v= 命中时未返回 immutable(cache-control=${JSON.stringify(cacheControl)})`)
+    }
+    let data
+    try {
+      data = JSON.parse(text)
+    } catch {
+      throw new Error(`[stock] 自检失败: 响应不是 JSON\n${text.slice(0, 500)}`)
+    }
+    if (!Array.isArray(data.items) || data.items.length === 0) {
+      throw new Error("[stock] 自检失败: /api/library/stock 返回空 items")
+    }
+    console.log(
+      `[stock] 自检通过:${stamped ? ` stamp=${stamp}` : ""} items=${data.items.length} styles=${data.styles?.length ?? 0} styleGraphs=${data.styleGraphs?.length ?? 0}`,
+    )
   }
   try {
     while (Date.now() < deadline) {
@@ -317,23 +404,7 @@ async function verifyStockEndpoint() {
         throw new Error(`[stock] 自检: next start 提前退出(code=${child.exitCode})\n${output}`)
       }
       try {
-        const res = await fetch(url, { signal: AbortSignal.timeout(15_000) })
-        const text = await res.text()
-        if (!res.ok) {
-          throw new Error(`[stock] 自检失败: HTTP ${res.status}\n${text.slice(0, 500)}`)
-        }
-        let data
-        try {
-          data = JSON.parse(text)
-        } catch {
-          throw new Error(`[stock] 自检失败: 响应不是 JSON\n${text.slice(0, 500)}`)
-        }
-        if (!Array.isArray(data.items) || data.items.length === 0) {
-          throw new Error("[stock] 自检失败: /api/library/stock 返回空 items")
-        }
-        console.log(
-          `[stock] 自检通过: items=${data.items.length} styles=${data.styles?.length ?? 0} styleGraphs=${data.styleGraphs?.length ?? 0}`,
-        )
+        await check()
         return
       } catch (err) {
         if (err?.message?.startsWith("[stock]")) throw err
@@ -380,7 +451,7 @@ async function main() {
 
   if (stockPatch) {
     console.log("[stock] 构建后自检 /api/library/stock ...")
-    await verifyStockEndpoint()
+    await verifyStockEndpoint({ stamped: stockPatch.stamped === true })
   }
 
   console.log("[dist] electron-builder 打包...")
